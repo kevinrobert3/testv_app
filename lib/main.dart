@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:dash_chat_2/dash_chat_2.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import 'package:sendbird_sdk/sendbird_sdk.dart' hide ConnectionState;
 
@@ -45,7 +46,9 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
   String message = '';
   String channelString =
       "sendbird_open_channel_14092_bf4075fbb8f12dc0df3ccc5c653f027186ac9211";
-  final GroupChannel channel = GroupChannel(
+  final OpenChannel channel = OpenChannel(
+      operators: [],
+      participantCount: 100,
       channelUrl:
           "sendbird_open_channel_14092_bf4075fbb8f12dc0df3ccc5c653f027186ac9211");
 
@@ -62,14 +65,15 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
 
   Future<void> _connectUser() async {
     try {
-      final user = await widget.sendbird.connect(
+      await widget.sendbird.connect(
         SharedPrefs().id,
       );
-      print('User connected: ${user.userId}');
+      // print('User connected: ${user.userId}');
 
       // _joinChannel();
+      return;
     } catch (e) {
-      print('Error connecting user: $e');
+      throw ('Error connecting user: $e');
     }
   }
 
@@ -79,16 +83,12 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
 
       await chan.enter();
 
-      print('Channel joined: ${chan.entered}');
-      // setState(() {
-      //   _fetchCh = getMessages(channel);
-      // });
-      _fetchCh = getMessages(channel);
-      setState(() {});
+      // print('Channel joined: ${chan.entered}');
+
       return;
     } catch (e) {
       if (e is BadRequestError) {
-        print('Detailed Error: ${e.message}');
+        throw ('Detailed Error: ${e.message}');
       }
     }
   }
@@ -96,21 +96,14 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
   @override
   void initState() {
     super.initState();
-    // _connectUser().then((value) {
-    //   _joinChannel().then((_) {
-    //     setState(() {
-    //       _fetchCh = getMessages(channel);
-    //     });
-    //   });
-    // });
     _connectUser().then((value) {
       _joinChannel().whenComplete(() {
-        // setState(() {
-        //   _fetchCh = getMessages(channel);
-        // });
+        // getMessages(channel);
+        _fetchCh = getMessages(channel);
       });
     });
-    SendbirdSdk().addChannelEventHandler(channelString, this);
+
+    // SendbirdSdk().addChannelEventHandler(channelString, this);
   }
 
   @override
@@ -127,29 +120,23 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
     });
   }
 
-  Future<List<BaseMessage>> getMessages(GroupChannel? channel) async {
-    // print(_fetchCh);
-    if (_fetchCh == null) {
-      print("not there");
-
-      return [];
-    }
-    print("fetch");
+  Future<List<BaseMessage>> getMessages(OpenChannel? channel) async {
     try {
       List<BaseMessage> messages = await channel!.getMessagesByTimestamp(
           DateTime.now().millisecondsSinceEpoch * 1000, MessageListParams());
       messages.sort(((a, b) => b.createdAt.compareTo(a.createdAt)));
-      print(messages.length);
+
       setState(() {
         messages.sort(((a, b) => b.createdAt.compareTo(a.createdAt)));
         _messages = messages;
       });
-      WidgetsBinding.instance!.addPostFrameCallback((_) {
-        setState(() {});
-      });
+
       return messages;
     } catch (e) {
-      print('group_channel_view.dart: getMessages: ERROR: $e');
+      if (e is BadRequestError) {
+        throw ('Detailed Error: ${e.message}');
+      }
+
       rethrow;
     }
   }
@@ -165,28 +152,28 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
       });
     } catch (error) {
       // The write failed...
-      print(error);
+      rethrow;
     }
   }
 
   List<ChatMessage> asDashChatMessages(List<BaseMessage> messages) {
-    // BaseMessage is a Sendbird class
-    // ChatMessage is a DashChat class
     List<ChatMessage> result = [];
+
     if (messages.isNotEmpty) {
-      messages.forEach((message) {
-        User user = message.sender as User;
-        if (user == null) {
-          return;
+      for (var message in messages) {
+        final user = message
+            .sender; // Add a question mark after 'as' to denote optional typing
+
+        if (user != null) {
+          result.add(
+            ChatMessage(
+              createdAt: DateTime.fromMillisecondsSinceEpoch(message.createdAt),
+              text: message.message,
+              user: asDashChatUser(user),
+            ),
+          );
         }
-        result.add(
-          ChatMessage(
-            createdAt: DateTime.fromMillisecondsSinceEpoch(message.createdAt),
-            text: message.message,
-            user: asDashChatUser(user),
-          ),
-        );
-      });
+      }
     }
     return result;
   }
@@ -199,11 +186,26 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
     );
   }
 
+  String getFirstTwoLetters(String inputString) {
+    if (inputString.isNotEmpty && inputString.length >= 2) {
+      return inputString.substring(0, 2).toUpperCase();
+    } else {
+      return "AN".toUpperCase();
+    }
+  }
+
+  final dateFormatPattern = "HH:mm";
+
+  String formatTime(int millisecondsSinceUnixEpoch) {
+    final parsedDateTime =
+        DateTime.fromMillisecondsSinceEpoch(millisecondsSinceUnixEpoch);
+    final formatter = DateFormat(dateFormatPattern);
+    final formattedDateTime = formatter.format(parsedDateTime);
+    return formattedDateTime;
+  }
+
   @override
   Widget build(BuildContext context) {
-    ChatUser? user = SendbirdSdk().currentUser != null
-        ? asDashChatUser(SendbirdSdk().currentUser!)
-        : null;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -216,7 +218,7 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
           onPressed: () {},
         ),
         title: Text(
-          "Home",
+          "강남스팟",
           style: TextStyle(
             color: Colors.grey[200],
           ),
@@ -251,6 +253,7 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
                     ),
                     child: FutureBuilder<List<BaseMessage>>(
                       future: _fetchCh,
+                      // future: getMessages(channel),
                       builder: (context, snapshot) {
                         if (snapshot.hasError) {
                           return SizedBox(
@@ -284,13 +287,14 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
                           );
                         }
 
-                        // WidgetsBinding.instance.addPostFrameCallback((_) {
-                        //   setState(() {});
-                        // });
-
-                        print(snapshot.data);
-
                         if (snapshot.data!.isEmpty) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (!empty) {
+                              setState(() {
+                                empty = true;
+                              });
+                            }
+                          });
                           return SizedBox(
                             height: MediaQuery.of(context).size.height * 0.5,
                             child: Column(
@@ -300,13 +304,14 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
                                   height: 82,
                                   width: 82,
                                   decoration: BoxDecoration(
-                                    color: Colors.blue[50],
+                                    color: Colors.grey[800],
                                     borderRadius: BorderRadius.circular(80),
                                   ),
-                                  child: const Center(
+                                  child: Center(
                                     child: Icon(
                                       CupertinoIcons.chat_bubble_2,
                                       size: 30,
+                                      color: Colors.grey[400],
                                     ),
                                   ),
                                 ),
@@ -317,9 +322,10 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
                                   'No messages in this channel yet',
                                   style: TextStyle(
                                     fontWeight: FontWeight.w700,
-                                    color: Colors.grey[800],
-                                    fontSize: 23,
+                                    color: Colors.grey[400],
+                                    fontSize: 20,
                                   ),
+                                  textAlign: TextAlign.center,
                                 ),
                                 const SizedBox(
                                   height: 5,
@@ -329,26 +335,25 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
                           );
                         }
 
-                        // WidgetsBinding.instance.addPostFrameCallback((_) {
-                        //   if (empty) {
-                        //     setState(() {
-                        //       empty = false;
-                        //     });
-                        //   }
-                        //   if (_scrollController.hasClients) {
-                        //     _scrollController.animateTo(
-                        //       _scrollController.position.maxScrollExtent,
-                        //       duration: const Duration(milliseconds: 400),
-                        //       curve: Curves.fastOutSlowIn,
-                        //     );
-                        //   }
-                        // });
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (empty) {
+                            setState(() {
+                              empty = false;
+                            });
+                          }
+                          if (_scrollController.hasClients) {
+                            _scrollController.animateTo(
+                              _scrollController.position.maxScrollExtent,
+                              duration: const Duration(milliseconds: 400),
+                              curve: Curves.fastOutSlowIn,
+                            );
+                          }
+                        });
 
                         return Wrap(
                           children: _messages
                               .map((BaseMessage message) {
-                                // print(message.sender!.userId);
-                                if (message.sender!.userId == user!.id) {
+                                if (message.sender!.isCurrentUser) {
                                   // is current user
                                   return Row(
                                     mainAxisAlignment: MainAxisAlignment.end,
@@ -396,10 +401,31 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
                                       Padding(
                                         padding:
                                             const EdgeInsets.only(right: 10.0),
-                                        child: CircleAvatar(
-                                          radius: 22,
-                                          backgroundImage: NetworkImage(
-                                              message.sender!.profileUrl!),
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                                color: const Color(0xffFF006A),
+                                                width: message.sender!
+                                                            .connectionStatus ==
+                                                        UserConnectionStatus
+                                                            .online
+                                                    ? 3
+                                                    : 0),
+                                          ),
+                                          child: CircleAvatar(
+                                            radius: 22,
+                                            backgroundImage: message.sender!
+                                                    .profileUrl!.isNotEmpty
+                                                ? NetworkImage(
+                                                    message.sender!.profileUrl!)
+                                                : null,
+                                            child: message
+                                                    .sender!.profileUrl!.isEmpty
+                                                ? Text(getFirstTwoLetters(
+                                                    message.sender!.userId))
+                                                : const Text(""),
+                                          ),
                                         ),
                                       ),
                                       Flexible(
@@ -442,21 +468,32 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
                                                         CrossAxisAlignment
                                                             .center,
                                                     children: [
-                                                      Text(
-                                                        "Header",
-                                                        style: TextStyle(
-                                                            color: Colors
-                                                                .grey[500]),
+                                                      Flexible(
+                                                        child: Text(
+                                                          message
+                                                              .sender!.userId,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: TextStyle(
+                                                              color: Colors
+                                                                  .grey[500]),
+                                                        ),
                                                       ),
                                                       const SizedBox(
                                                         width: 4,
                                                       ),
-                                                      const Icon(
-                                                        Icons.circle,
-                                                        size: 10,
-                                                        color:
-                                                            Colors.greenAccent,
-                                                      )
+                                                      message.sender!
+                                                                  .connectionStatus ==
+                                                              UserConnectionStatus
+                                                                  .online
+                                                          ? const Icon(
+                                                              Icons.circle,
+                                                              size: 10,
+                                                              color: Colors
+                                                                  .greenAccent,
+                                                            )
+                                                          : const SizedBox
+                                                              .shrink()
                                                     ],
                                                   ),
                                                   Text(
@@ -475,7 +512,7 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
                                               padding: const EdgeInsets.only(
                                                   left: 8.0, bottom: 10),
                                               child: Text(
-                                                "Sub",
+                                                formatTime(message.createdAt),
                                                 style: TextStyle(
                                                     color: Colors.grey[500]),
                                               ),
@@ -517,7 +554,6 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
                 controller: _messageTextController,
                 onSubmitted: (value) async {
                   if (message.isNotEmpty) {
-                    print(message);
                     await sendMessage(
                       message: message.trim(),
                     );
@@ -549,7 +585,6 @@ class _MainAppState extends State<MainApp> with ChannelEventHandler {
                       child: GestureDetector(
                         onTap: () async {
                           if (message.isNotEmpty) {
-                            print(message);
                             await sendMessage(
                               message: message.trim(),
                             );
